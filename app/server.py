@@ -5,35 +5,74 @@ import asyncio
 from asyncio import transports
 
 
+class User:
+    login: str or None
+
+    def __init__(self, login=None):
+        self.login = login
+
+    def __str__(self):
+        return self.login
+
+
+class Message:
+    text: str
+    user: 'User'
+
+    def __init__(self, user: User, text: str):
+        self.user = user
+        self.text = text
+
+    def __str__(self):
+        return f"<{self.user}> {self.text}"
+
+    def encode(self):
+        return self.__str__().encode()
+
+    def send(self, server: 'Server'):
+        encoded = self.encode()
+
+        for client in server.clients:
+            if client.user != self.user:
+                client.transport.write(encoded)
+
+
 class ClientProtocol(asyncio.Protocol):
-    login: str
+    user: 'User'
     server: 'Server'
     transport: transports.Transport
 
     def __init__(self, server: 'Server'):
         self.server = server
-        self.login = None
+        self.user = User()
 
     def data_received(self, data: bytes):
         decoded = data.decode()
         print(decoded)
 
-        if self.login is None:
-            # login:User
+        # Проверям, залогинен ли пользователь
+        if self.user.login is None:
+            # если строка сообщения начинается с login: - пытаемся авторизовать его
+            # todo проверять, есть ли что-то после слова login:
             if decoded.startswith("login:"):
-                self.login = decoded.replace("login:", "").replace("\r\n", "")
+                self.user.login = decoded.replace("login:", "").replace("\r\n", "")
+                # todo проверять, нет ли уже пользователя с таким логином онлайн
                 self.transport.write(
-                    f"Привет, {self.login}!".encode()
+                    f"Привет, {self.user}!".encode()
                 )
+            # если нет - отправляем данному пользователю ошибку
+            else:
+                self.send_error("Для того, чтобы отправлять сообщения, вам необходимо войти в чат. Для этого напишите "
+                                "login:User, где User - ваш логин")
         else:
-            self.send_message(decoded)
+            message = Message(self.user, decoded)
+            message.send(server=self.server)
 
-    def send_message(self, message):
-        format_string = f"<{self.login}> {message}"
-        encoded = format_string.encode()
+    def send_error(self, error):
+        encoded = error.encode()
 
         for client in self.server.clients:
-            if client.login != self.login:
+            if client.user == self.user:
                 client.transport.write(encoded)
 
     def connection_made(self, transport: transports.Transport):
