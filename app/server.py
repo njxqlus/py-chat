@@ -50,25 +50,45 @@ class ClientProtocol(asyncio.Protocol):
         decoded = data.decode()
         print(decoded)
 
-        # Проверям, залогинен ли пользователь
-        if self.user.login is None:
-            # если строка сообщения начинается с login: - пытаемся авторизовать его
-            # todo проверять, есть ли что-то после слова login:
-            if decoded.startswith("login:"):
-                self.user.login = decoded.replace("login:", "").replace("\r\n", "")
-                # todo проверять, нет ли уже пользователя с таким логином онлайн
+        # команда для вывода пользователей онлайн
+        if decoded == "online":
+            self.send_system_message(", ".join(self.server.get_logged_in_users()))
+
+        # пользователь пытается залогинится и он дейсвительно еще не залогинен
+        elif decoded.startswith("login:") and self.user.login is None:
+            login = decoded.replace("login:", "").replace("\r\n", "")
+            # проверяем, нет ли пользователей с таким логином онлайн. если есть - рвем соединение
+            if self.server.is_client_online(login):
+                self.send_system_message(
+                    f"Пользователь с логином {login} уже онлайн! Досвидания!"
+                )
+                # закрывает транспорт, согласно документации он вызывает connection_lost()
+                self.transport.close()
+            # если нет - логиним и привествуем пользователя
+            else:
+                self.user.login = login
                 self.transport.write(
                     f"Привет, {self.user}!".encode()
                 )
-            # если нет - отправляем данному пользователю ошибку
-            else:
-                self.send_error("Для того, чтобы отправлять сообщения, вам необходимо войти в чат. Для этого напишите "
-                                "login:User, где User - ваш логин")
+
+        # пользователь пытается залогиниться, но он уже залогинен
+        elif decoded.startswith("login:") and self.user.login is not None:
+            self.send_system_message(
+                f"Вы уже вошли под пользователем {self.user}. Если хотите перезайти - перезапустите программу"
+            )
+
+        # пользователя еще не залогинен и не пытается
+        elif not decoded.startswith("login:") and self.user.login is None:
+            self.send_system_message(
+                "Для отправки сообщений вам необходимо войти. Используйте команду login:Name, где Name - ваше имя"
+            )
+
+        # пользователь залогинен и отправляет сообщение
         else:
             message = Message(self.user, decoded)
-            message.send(server=self.server)
+            message.send(self.server)
 
-    def send_error(self, error):
+    def send_system_message(self, error):
         encoded = error.encode()
 
         for client in self.server.clients:
@@ -106,6 +126,19 @@ class Server:
         print("Сервер запущен ...")
 
         await coroutine.serve_forever()
+
+    def is_client_online(self, login: str) -> bool:
+        for client in self.clients:
+            if login == client.user.login:
+                return True
+        return False
+
+    def get_logged_in_users(self):
+        logged_in_users = list()
+        for client in self.clients:
+            if client.user.login is not None:
+                logged_in_users.append(client.user.login)
+        return logged_in_users
 
 
 process = Server()
