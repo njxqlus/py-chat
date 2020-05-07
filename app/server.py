@@ -60,7 +60,7 @@ class ClientProtocol(asyncio.Protocol):
             # проверяем, нет ли пользователей с таким логином онлайн. если есть - рвем соединение
             if self.server.is_client_online(login):
                 self.send_system_message(
-                    f"Пользователь с логином {login} уже онлайн! Досвидания!"
+                    f"Логин {login} занят, попробуйте другой"
                 )
                 # закрывает транспорт, согласно документации он вызывает connection_lost()
                 self.transport.close()
