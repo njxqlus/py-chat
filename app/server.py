@@ -23,15 +23,16 @@ class Message:
         self.user = user
         self.text = text
 
-    def __str__(self):
+    def __str__(self) -> str:
         return f"<{self.user}> {self.text}"
 
-    def encode(self):
+    def encode(self) -> bytes:
         return self.__str__().encode()
 
-    def send(self, server: 'Server'):
+    def send(self, server: 'Server') -> None:
         encoded = self.encode()
 
+        # отправка сообщения всем, кроме отправителя сообщения
         for client in server.clients:
             if client.user != self.user:
                 client.transport.write(encoded)
@@ -70,6 +71,8 @@ class ClientProtocol(asyncio.Protocol):
                 self.transport.write(
                     f"Привет, {self.user}!".encode()
                 )
+                message = Message(self.user, "входит в чат!")
+                message.send(self.server)
 
         # пользователь пытается залогиниться, но он уже залогинен
         elif decoded.startswith("login:") and self.user.login is not None:
@@ -85,20 +88,34 @@ class ClientProtocol(asyncio.Protocol):
 
         # пользователь залогинен и отправляет сообщение
         else:
+            # создаю объект сообщения
             message = Message(self.user, decoded)
+            # добавляю сообщение в историю
+            self.server.history.append(message)
+            # отправляю сообщение
             message.send(self.server)
 
-    def send_system_message(self, error):
-        encoded = error.encode()
+    def send_system_message(self, message):
+        encoded = message.encode()
 
-        for client in self.server.clients:
-            if client.user == self.user:
-                client.transport.write(encoded)
+        self.transport.write(encoded)
+
+    def send_history(self):
+        # получаю последние сообщения с сервера (10 по умолчанию)
+        last_messages = self.server.get_last_messages()
+        if len(last_messages) > 0:
+            # конвертирую в строку, чтобы не отправлять по одному сообщению
+            last_messages_str = "Последние сообщения:"
+            for item in last_messages:
+                last_messages_str += f"\r\n{item}"
+            # кодирую и отправляю сообщения
+            self.transport.write(last_messages_str.encode())
 
     def connection_made(self, transport: transports.Transport):
         self.transport = transport
         self.server.clients.append(self)
         print("Соединение установлено")
+        self.send_history()
 
     def connection_lost(self, exception):
         self.server.clients.remove(self)
@@ -107,9 +124,11 @@ class ClientProtocol(asyncio.Protocol):
 
 class Server:
     clients: list
+    history: list
 
     def __init__(self):
         self.clients = []
+        self.history = []
 
     def create_protocol(self):
         return ClientProtocol(self)
@@ -133,12 +152,22 @@ class Server:
                 return True
         return False
 
-    def get_logged_in_users(self):
+    def get_logged_in_users(self) -> list:
         logged_in_users = list()
         for client in self.clients:
             if client.user.login is not None:
                 logged_in_users.append(client.user.login)
         return logged_in_users
+
+    def get_last_messages(self, number=10) -> list:
+        # если история пустая - возвращаю пустой список
+        if len(self.history) == 0:
+            return []
+        # если история меньше, чем запрошенное кол-во сообщений, то уменьшаю запрошенное кол-во сообщение
+        if len(self.history) < number:
+            number = len(self.history)
+
+        return self.history[-number:]
 
 
 process = Server()
