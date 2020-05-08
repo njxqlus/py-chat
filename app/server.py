@@ -67,12 +67,14 @@ class ClientProtocol(asyncio.Protocol):
                 self.transport.close()
             # если нет - логиним и привествуем пользователя
             else:
+                # присваиваю текущему пользователю логин
                 self.user.login = login
+                # приветствую пользователя
                 self.transport.write(
-                    f"Привет, {self.user}!".encode()
+                    f"Привет, {self.user}!\r\n".encode()
                 )
-                message = Message(self.user, "входит в чат!")
-                message.send(self.server)
+                # отправляю пользователю посление сообщения
+                self.send_history()
 
         # пользователь пытается залогиниться, но он уже залогинен
         elif decoded.startswith("login:") and self.user.login is not None:
@@ -115,7 +117,6 @@ class ClientProtocol(asyncio.Protocol):
         self.transport = transport
         self.server.clients.append(self)
         print("Соединение установлено")
-        self.send_history()
 
     def connection_lost(self, exception):
         self.server.clients.remove(self)
